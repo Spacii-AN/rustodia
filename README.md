@@ -107,10 +107,10 @@ If you prefer to install manually:
 - `Melee with Fire Weapon Input` → **OFF**
 
 ### Keybinds
-Edit the `KEYBINDS` dictionary in `pt-macro.py` (lines 79-89) to customize controls:
+Edit the `KEYBINDS` dictionary in `pt-macro.py` (lines 53-62) to customize controls:
 
 ```python
-# Enable/disable alternative macro button (line 77)
+# Enable/disable alternative macro button (line 47)
 ENABLE_MACRO_ALT = True  # Set to False to disable second side mouse button
 
 KEYBINDS = {
@@ -132,7 +132,7 @@ KEYBINDS = {
 - You can **manually override** by setting `'macro'` and `'macro_alt'` to any button/key you want (see examples below)
 
 #### Disabling Alternative Macro Button
-If you only want to use one side mouse button, set `ENABLE_MACRO_ALT = False` on line 77. This will disable the second side mouse button (x2/button9) from triggering the macro.
+If you only want to use one side mouse button, set `ENABLE_MACRO_ALT = False` on line 47. This will disable the second side mouse button (x2/button9) from triggering the macro.
 
 #### Changing the Macro Button
 
@@ -183,16 +183,16 @@ You can easily change the macro button by editing the `'macro'` value in `KEYBIN
 
 ### Fine-Tuning the Macro
 
-All timing values are now organized in a dedicated **TIMING CONFIGURATION** section (lines 70-109) for easy adjustment. Here's what each setting does:
+All timing values are now organized in a dedicated **TIMING CONFIGURATION** section (lines 64-106) for easy adjustment. The configuration is clearly separated from code logic with an "END OF USER CONFIGURATION" marker at line 107. Here's what each setting does:
 
-#### Game FPS (Line 75)
+#### Game FPS (Line 71)
 ```python
 FPS = 115  # Set this to match your in-game FPS
 ```
 - **What it does**: Base FPS value used for automatic timing calculations
 - **When to adjust**: If your game runs at a different FPS than 115
 
-#### Jump Timing (Lines 78-79)
+#### Jump Timing (Lines 74-75)
 ```python
 JUMP_DELAY_MS = 1100  # Milliseconds between jumps
 DOUBLE_JUMP_DELAY = JUMP_DELAY_MS / FPS / 1000
@@ -201,7 +201,7 @@ DOUBLE_JUMP_DELAY = JUMP_DELAY_MS / FPS / 1000
 - **When to adjust**: If jumps feel too fast/slow, or emote timing is off
 - **Lower value** = faster jumps, **Higher value** = slower jumps
 
-#### Aim & Melee Timing (Lines 82-83)
+#### Aim & Melee Timing (Lines 78-79)
 ```python
 AIM_MELEE_DELAY = 0.025  # Delay between aim and melee (seconds)
 MELEE_HOLD_TIME = 0.050  # How long to hold melee (seconds)
@@ -213,7 +213,7 @@ MELEE_HOLD_TIME = 0.050  # How long to hold melee (seconds)
   - **Lower** = shorter melee press
   - **Higher** = longer melee press
 
-#### Emote Cancel Timing (Lines 85-97)
+#### Emote Cancel Timing (Lines 81-93)
 ```python
 USE_EMOTE_FORMULA = True  # Use formula or manual delay
 EMOTE_PREPARATION_DELAY_MANUAL = 0.100  # Manual delay (if formula disabled)
@@ -222,7 +222,7 @@ EMOTE_PREPARATION_DELAY_MANUAL = 0.100  # Manual delay (if formula disabled)
 - **Manual mode**: Set `USE_EMOTE_FORMULA = False` and adjust `EMOTE_PREPARATION_DELAY_MANUAL`
 - **When to adjust**: If emote cancel isn't working properly
 
-#### Rapid Fire Timing (Lines 100-101)
+#### Rapid Fire Timing (Lines 96-97)
 ```python
 RAPID_FIRE_DURATION_MS = 230  # Total rapid fire duration (milliseconds)
 RAPID_FIRE_CLICK_DELAY = 0.001  # Delay between shots (seconds)
@@ -234,7 +234,7 @@ RAPID_FIRE_CLICK_DELAY = 0.001  # Delay between shots (seconds)
   - **Lower** = faster firing rate
   - **Higher** = slower firing rate
 
-#### Sequence Loop Timing (Lines 104-105)
+#### Sequence Loop Timing (Lines 100-101)
 ```python
 SEQUENCE_END_DELAY = 0.050  # Delay at end of sequence (seconds)
 LOOP_DELAY = 0.0005  # Delay between sequence loops (seconds)
@@ -244,7 +244,7 @@ LOOP_DELAY = 0.0005  # Delay between sequence loops (seconds)
   - **Lower** = faster repetition
   - **Higher** = slower repetition
 
-#### Rapid Click Macro (Lines 108-109)
+#### Rapid Click Macro (Lines 104-105)
 ```python
 RAPID_CLICK_COUNT = 10  # Number of clicks
 RAPID_CLICK_DELAY = 0.05  # Delay between clicks (seconds)
@@ -256,14 +256,14 @@ RAPID_CLICK_DELAY = 0.05  # Delay between clicks (seconds)
 
 | Issue | Line to Edit | What to Change |
 |-------|-------------|----------------|
-| Macro too fast/slow overall | 75 | Adjust `FPS` to match your game |
-| Jumps feel off | 78 | Adjust `JUMP_DELAY_MS` (in milliseconds) |
-| Melee not activating properly | 82 | Adjust `AIM_MELEE_DELAY` (lower = faster) |
-| Melee held too long/short | 83 | Adjust `MELEE_HOLD_TIME` |
-| Emote cancel not working | 88-89 | Set `USE_EMOTE_FORMULA = False` and adjust `EMOTE_PREPARATION_DELAY_MANUAL` |
-| Rapid fire too short/long | 100 | Adjust `RAPID_FIRE_DURATION_MS` |
-| Rapid fire too fast/slow | 101 | Adjust `RAPID_FIRE_CLICK_DELAY` |
-| Sequences repeating too fast | 105 | Increase `LOOP_DELAY` |
+| Macro too fast/slow overall | 71 | Adjust `FPS` to match your game |
+| Jumps feel off | 74 | Adjust `JUMP_DELAY_MS` (in milliseconds) |
+| Melee not activating properly | 78 | Adjust `AIM_MELEE_DELAY` (lower = faster) |
+| Melee held too long/short | 79 | Adjust `MELEE_HOLD_TIME` |
+| Emote cancel not working | 84-85 | Set `USE_EMOTE_FORMULA = False` and adjust `EMOTE_PREPARATION_DELAY_MANUAL` |
+| Rapid fire too short/long | 96 | Adjust `RAPID_FIRE_DURATION_MS` |
+| Rapid fire too fast/slow | 97 | Adjust `RAPID_FIRE_CLICK_DELAY` |
+| Sequences repeating too fast | 101 | Increase `LOOP_DELAY` |
 
 ## Usage
 
@@ -323,8 +323,8 @@ The macro automatically stops if:
 - Verify you have the required permissions (macOS accessibility, Linux input device access)
 
 ### Macro runs but timing is off
-- Adjust the `FPS` variable (line 75) to match your actual in-game FPS
-- Fine-tune individual timing values in the **TIMING CONFIGURATION** section (lines 70-109)
+- Adjust the `FPS` variable (line 71) to match your actual in-game FPS
+- Fine-tune individual timing values in the **TIMING CONFIGURATION** section (lines 64-106)
 - See the "Fine-Tuning the Macro" section above for detailed timing adjustments
 - Check that your system can handle the precision timing
 
@@ -371,7 +371,7 @@ PTmacro/
   - Windows: Uses `Button.x1` and `Button.x2` for side mouse buttons
   - Linux/macOS: Uses `Button.button8` and `Button.button9` for side mouse buttons
   - Fully configurable - you can override with any button or key you prefer
-- **Organized Configuration**: All keybinds and timing values are clearly organized in dedicated sections at the top of the file
+- **Organized Configuration**: All keybinds and timing values are clearly organized in dedicated sections at the top of the file, with a clear "END OF USER CONFIGURATION" separator (line 107) to distinguish user-configurable settings from code logic
 - **Graceful Shutdown**: Proper signal handling for clean exit with Ctrl+C
 
 ## License
