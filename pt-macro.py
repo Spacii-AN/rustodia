@@ -72,11 +72,13 @@ def get_side_mouse_button(button_number=1):
 # ============================================================================
 # KEYBIND CONFIGURATION
 # ============================================================================
+# Edit the values below to customize your keybinds
+# ============================================================================
 
 # Enable/disable alternative macro button (second side mouse button)
 ENABLE_MACRO_ALT = True  # Set to False to disable the second side mouse button
 
-# Initialize KEYBINDS - handle side mouse buttons safely
+# Keybind Settings
 # You can manually set 'macro' and 'macro_alt' to any button/key you want
 # Examples:
 #   'macro': Button.x1,        # Windows: first side button
@@ -84,16 +86,16 @@ ENABLE_MACRO_ALT = True  # Set to False to disable the second side mouse button
 #   'macro': Button.middle,    # Middle mouse button
 #   'macro': Key.f1,           # F1 key
 #   'macro': 'q',              # Q key
-# If set to None or not specified, will auto-detect based on platform
+# If set to None, will auto-detect based on platform
 KEYBINDS = {
-    'melee': 'e',
-    'jump': Key.space,
-    'aim': Button.right,
-    'fire': Button.left,
-    'emote': '.',
-    'macro': None,  # Auto-detect: Button.x1 (Windows) or Button.button8 (Linux/macOS)
-    'macro_alt': None,  # Auto-detect: Button.x2 (Windows) or Button.button9 (Linux/macOS) - only if ENABLE_MACRO_ALT = True
-    'rapid_click': 'j',  # New keybind for rapid click macro
+    'melee': 'e',                    # Melee attack key
+    'jump': Key.space,               # Jump key
+    'aim': Button.right,             # Aim button (right mouse)
+    'fire': Button.left,             # Fire button (left mouse)
+    'emote': '.',                    # Emote key
+    'macro': None,                   # Macro trigger: Auto-detects Button.x1 (Windows) or Button.button8 (Linux/macOS)
+    'macro_alt': None,               # Alternative macro trigger: Auto-detects Button.x2 (Windows) or Button.button9 (Linux/macOS)
+    'rapid_click': 'j',              # Rapid click macro key
 }
 
 # Auto-detect side mouse buttons if not manually set
@@ -131,25 +133,27 @@ if ENABLE_MACRO_ALT and KEYBINDS['macro_alt'] is None:
             KEYBINDS['macro_alt'] = Button.button9
 
 # ============================================================================
-# TIMING CONFIGURATION - Adjust these values to fine-tune the macro
+# TIMING CONFIGURATION
+# ============================================================================
+# Adjust these values to fine-tune the macro timing
 # ============================================================================
 
-# Game FPS - Set this to match your in-game FPS for optimal timing
-FPS = 115
+# --- Game FPS ---
+FPS = 115  # Set this to match your in-game FPS for optimal timing
 
-# Jump Timing
-JUMP_DELAY_MS = 1100  # Milliseconds between jumps (and emote presses)
-DOUBLE_JUMP_DELAY = JUMP_DELAY_MS / FPS / 1000  # Converted to seconds
+# --- Jump Timing ---
+JUMP_DELAY_MS = 1100  # Milliseconds: Delay between jumps (and emote presses)
+DOUBLE_JUMP_DELAY = JUMP_DELAY_MS / FPS / 1000  # Calculated: Converted to seconds
 
-# Aim & Melee Timing
+# --- Aim & Melee Timing ---
 AIM_MELEE_DELAY = 0.025  # Seconds: Delay between pressing aim and pressing melee (lower = faster)
 MELEE_HOLD_TIME = 0.050  # Seconds: How long to hold melee key
 
-# Emote Cancel Timing
+# --- Emote Cancel Timing ---
 # Formula-based: -26 * ln(fps) + 245 (automatically calculated)
-# You can override this by setting EMOTE_PREPARATION_DELAY directly below
-USE_EMOTE_FORMULA = True  # Set to False to use manual delay
-EMOTE_PREPARATION_DELAY_MANUAL = 0.100  # Seconds: Manual emote delay (if USE_EMOTE_FORMULA = False)
+# You can override this by setting USE_EMOTE_FORMULA = False and adjusting EMOTE_PREPARATION_DELAY_MANUAL
+USE_EMOTE_FORMULA = True  # Set to False to use manual delay instead of formula
+EMOTE_PREPARATION_DELAY_MANUAL = 0.100  # Seconds: Manual emote delay (used if USE_EMOTE_FORMULA = False)
 
 if USE_EMOTE_FORMULA:
     _raw_emote_delay = (-26 * math.log(FPS) + 245) / 1000
@@ -159,16 +163,16 @@ if USE_EMOTE_FORMULA:
 else:
     EMOTE_PREPARATION_DELAY = EMOTE_PREPARATION_DELAY_MANUAL
 
-# Rapid Fire Timing
+# --- Rapid Fire Timing ---
 RAPID_FIRE_DURATION_MS = 230  # Milliseconds: Total duration of rapid fire sequence
 RAPID_FIRE_CLICK_DELAY = 0.001  # Seconds: Delay between each rapid fire click (lower = faster)
 
-# Sequence Loop Timing
+# --- Sequence Loop Timing ---
 SEQUENCE_END_DELAY = 0.050  # Seconds: Delay at end of sequence before next loop
 LOOP_DELAY = 0.0005  # Seconds: Delay between sequence loops (lower = faster repetition)
 
-# Rapid Click Macro (separate from main sequence)
-RAPID_CLICK_COUNT = 10  # Number of clicks for rapid click macro
+# --- Rapid Click Macro Timing ---
+RAPID_CLICK_COUNT = 10  # Number: Number of clicks for rapid click macro
 RAPID_CLICK_DELAY = 0.05  # Seconds: Delay between rapid clicks
 
 # Global state
