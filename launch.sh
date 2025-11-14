@@ -1,6 +1,9 @@
 #!/bin/bash
-# Exodia Contagion Macro Launcher for Linux/macOS
+# Exodia Contagion Macro Launcher for Linux
 # This script will check for Python, install dependencies, and run the macro
+
+# Get the directory where the script is located
+cd "$(dirname "$0")"
 
 echo "========================================"
 echo "Exodia Contagion Macro Launcher"
@@ -13,7 +16,7 @@ if ! command -v python3 &> /dev/null; then
     echo "Please install Python 3.6+ from your package manager:"
     echo "  Ubuntu/Debian: sudo apt install python3 python3-pip python3-venv"
     echo "  Arch: sudo pacman -S python python-pip"
-    echo "  macOS: Install from https://www.python.org/downloads/"
+    echo "  Fedora: sudo dnf install python3 python3-pip"
     exit 1
 fi
 

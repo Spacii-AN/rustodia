@@ -2,6 +2,9 @@
 REM Exodia Contagion Macro Launcher for Windows
 REM This script will check for Python, install dependencies, and run the macro
 
+REM Change to the directory where the script is located
+cd /d "%~dp0"
+
 echo ========================================
 echo Exodia Contagion Macro Launcher
 echo ========================================
