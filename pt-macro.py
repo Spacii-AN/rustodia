@@ -93,40 +93,6 @@ KEYBINDS = {
     'rapid_click': 'j',              # Rapid click macro key
 }
 
-# Auto-detect side mouse buttons if not manually set
-# Windows uses Button.x1/x2, Linux/macOS use Button.button8/button9
-if KEYBINDS['macro'] is None:
-    try:
-        KEYBINDS['macro'] = get_side_mouse_button(1)
-        if KEYBINDS['macro'] is None:
-            # Fallback: try direct access
-            if hasattr(Button, 'x1'):
-                KEYBINDS['macro'] = Button.x1  # Windows
-            elif hasattr(Button, 'button8'):
-                KEYBINDS['macro'] = Button.button8  # Linux/macOS
-    except (AttributeError, TypeError):
-        # If button8/x1 doesn't exist, try the other
-        if hasattr(Button, 'x1'):
-            KEYBINDS['macro'] = Button.x1
-        elif hasattr(Button, 'button8'):
-            KEYBINDS['macro'] = Button.button8
-
-if ENABLE_MACRO_ALT and KEYBINDS['macro_alt'] is None:
-    try:
-        KEYBINDS['macro_alt'] = get_side_mouse_button(2)
-        if KEYBINDS['macro_alt'] is None:
-            # Fallback: try direct access
-            if hasattr(Button, 'x2'):
-                KEYBINDS['macro_alt'] = Button.x2  # Windows
-            elif hasattr(Button, 'button9'):
-                KEYBINDS['macro_alt'] = Button.button9  # Linux/macOS
-    except (AttributeError, TypeError):
-        # If button9/x2 doesn't exist, try the other
-        if hasattr(Button, 'x2'):
-            KEYBINDS['macro_alt'] = Button.x2
-        elif hasattr(Button, 'button9'):
-            KEYBINDS['macro_alt'] = Button.button9
-
 # ============================================================================
 # TIMING CONFIGURATION
 # ============================================================================
@@ -176,6 +142,40 @@ RAPID_CLICK_DELAY = 0.05  # Seconds: Delay between rapid clicks
 # Everything below this line is code logic - do not modify unless you know
 # what you're doing. All user-configurable settings are above this line.
 # ============================================================================
+
+# Auto-detect side mouse buttons if not manually set
+# Windows uses Button.x1/x2, Linux/macOS use Button.button8/button9
+if KEYBINDS['macro'] is None:
+    try:
+        KEYBINDS['macro'] = get_side_mouse_button(1)
+        if KEYBINDS['macro'] is None:
+            # Fallback: try direct access
+            if hasattr(Button, 'x1'):
+                KEYBINDS['macro'] = Button.x1  # Windows
+            elif hasattr(Button, 'button8'):
+                KEYBINDS['macro'] = Button.button8  # Linux/macOS
+    except (AttributeError, TypeError):
+        # If button8/x1 doesn't exist, try the other
+        if hasattr(Button, 'x1'):
+            KEYBINDS['macro'] = Button.x1
+        elif hasattr(Button, 'button8'):
+            KEYBINDS['macro'] = Button.button8
+
+if ENABLE_MACRO_ALT and KEYBINDS['macro_alt'] is None:
+    try:
+        KEYBINDS['macro_alt'] = get_side_mouse_button(2)
+        if KEYBINDS['macro_alt'] is None:
+            # Fallback: try direct access
+            if hasattr(Button, 'x2'):
+                KEYBINDS['macro_alt'] = Button.x2  # Windows
+            elif hasattr(Button, 'button9'):
+                KEYBINDS['macro_alt'] = Button.button9  # Linux/macOS
+    except (AttributeError, TypeError):
+        # If button9/x2 doesn't exist, try the other
+        if hasattr(Button, 'x2'):
+            KEYBINDS['macro_alt'] = Button.x2
+        elif hasattr(Button, 'button9'):
+            KEYBINDS['macro_alt'] = Button.button9
 
 # Global state
 running = False
