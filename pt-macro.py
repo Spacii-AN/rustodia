@@ -80,13 +80,8 @@ ENABLE_MACRO_ALT = True  # Set to False to disable the second side mouse button
 
 # Keybind Settings
 # You can manually set 'macro' and 'macro_alt' to any button/key you want
-# Examples:
-#   'macro': Button.x1,        # Windows: first side button
-#   'macro': Button.button8,   # Linux/macOS: first side button
-#   'macro': Button.middle,    # Middle mouse button
-#   'macro': Key.f1,           # F1 key
-#   'macro': 'q',              # Q key
 # If set to None, will auto-detect based on platform
+# For a complete list of available buttons/keys, see BUTTON_REFERENCE.md
 KEYBINDS = {
     'melee': 'e',                    # Melee attack key
     'jump': Key.space,               # Jump key
