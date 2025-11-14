@@ -58,6 +58,29 @@ pip install pynput>=1.7.6 psutil>=5.9.0
 
 ## Installation
 
+### Easy Installation (Recommended)
+
+**For Windows:**
+1. Download or clone this repository
+2. Double-click `launch.bat`
+3. The script will automatically install dependencies and start the macro
+
+**For macOS:**
+1. Download or clone this repository
+2. Double-click `launch.command`
+3. The script will automatically install dependencies and start the macro
+
+**For Linux:**
+1. Download or clone this repository
+2. Right-click `launch.sh` → Properties → Permissions → Check "Execute"
+3. Or run: `chmod +x launch.sh`
+4. Double-click `launch.sh` or run: `./launch.sh`
+5. The script will automatically install dependencies and start the macro
+
+### Manual Installation
+
+If you prefer to install manually:
+
 1. Clone or download this repository:
    ```bash
    git clone https://github.com/Spacii-AN/ptexodia
@@ -216,14 +239,26 @@ RAPID_CLICK_DELAY = 0.05  # Delay between clicks (seconds)
 
 ### Running the Script
 
-**Option 1: Direct execution**
+**Option 1: Using the launcher (Easiest - Recommended)**
+- **Windows**: Double-click `launch.bat`
+- **macOS**: Double-click `launch.command`
+- **Linux**: Double-click `launch.sh` or run `./launch.sh`
+
+The launcher will automatically:
+- Check for Python installation
+- Create a virtual environment (if needed)
+- Install/update all dependencies
+- Start the macro
+
+**Option 2: Direct execution**
 ```bash
 python pt-macro.py
 ```
 
-**Option 2: Using virtual environment**
+**Option 3: Using virtual environment**
 ```bash
-./venv/bin/python pt-macro.py
+./venv/bin/python pt-macro.py  # Linux/macOS
+venv\Scripts\python pt-macro.py  # Windows
 ```
 
 ### Controls
@@ -285,8 +320,11 @@ The macro automatically stops if:
 PTmacro/
 ├── pt-macro.py         # Main macro script
 ├── requirements.txt    # Python dependencies
+├── launch.bat          # Windows launcher (double-click to run)
+├── launch.sh           # Linux launcher (double-click or ./launch.sh)
+├── launch.command      # macOS launcher (double-click to run)
 ├── BUTTON_REFERENCE.md # Complete reference of all available buttons and keys
-├── venv/              # Virtual environment (if created)
+├── venv/              # Virtual environment (created automatically by launcher)
 └── README.md          # This file
 ```
 
