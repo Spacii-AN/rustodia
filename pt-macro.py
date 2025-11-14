@@ -37,38 +37,6 @@ else:
     WINDOWS_DIRECT_INPUT = False
 
 
-def get_side_mouse_button(button_number=1):
-    """
-    Get the side mouse button in a cross-platform way.
-    Windows uses Button.x1/x2, Linux/macOS use Button.button8/button9.
-    button_number: 1 for first side button (x1/button8), 2 for second side button (x2/button9)
-    """
-    try:
-        if button_number == 1:
-            # Try x1 first (Windows)
-            if hasattr(Button, 'x1'):
-                return Button.x1
-            # Fallback to button8 (Linux/macOS)
-            elif hasattr(Button, 'button8'):
-                return Button.button8
-            else:
-                # Last resort: try to get it anyway
-                return getattr(Button, 'x1', getattr(Button, 'button8', None))
-        else:  # button_number == 2
-            # Try x2 first (Windows)
-            if hasattr(Button, 'x2'):
-                return Button.x2
-            # Fallback to button9 (Linux/macOS)
-            elif hasattr(Button, 'button9'):
-                return Button.button9
-            else:
-                # Last resort: try to get it anyway
-                return getattr(Button, 'x2', getattr(Button, 'button9', None))
-    except (AttributeError, TypeError):
-        # If all else fails, return None and let the user configure manually
-        return None
-
-
 # ============================================================================
 # KEYBIND CONFIGURATION
 # ============================================================================
@@ -142,6 +110,37 @@ RAPID_CLICK_DELAY = 0.05  # Seconds: Delay between rapid clicks
 # Everything below this line is code logic - do not modify unless you know
 # what you're doing. All user-configurable settings are above this line.
 # ============================================================================
+
+def get_side_mouse_button(button_number=1):
+    """
+    Get the side mouse button in a cross-platform way.
+    Windows uses Button.x1/x2, Linux/macOS use Button.button8/button9.
+    button_number: 1 for first side button (x1/button8), 2 for second side button (x2/button9)
+    """
+    try:
+        if button_number == 1:
+            # Try x1 first (Windows)
+            if hasattr(Button, 'x1'):
+                return Button.x1
+            # Fallback to button8 (Linux/macOS)
+            elif hasattr(Button, 'button8'):
+                return Button.button8
+            else:
+                # Last resort: try to get it anyway
+                return getattr(Button, 'x1', getattr(Button, 'button8', None))
+        else:  # button_number == 2
+            # Try x2 first (Windows)
+            if hasattr(Button, 'x2'):
+                return Button.x2
+            # Fallback to button9 (Linux/macOS)
+            elif hasattr(Button, 'button9'):
+                return Button.button9
+            else:
+                # Last resort: try to get it anyway
+                return getattr(Button, 'x2', getattr(Button, 'button9', None))
+    except (AttributeError, TypeError):
+        # If all else fails, return None and let the user configure manually
+        return None
 
 # Auto-detect side mouse buttons if not manually set
 # Windows uses Button.x1/x2, Linux/macOS use Button.button8/button9
