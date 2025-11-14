@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Exodia Contagion Macro for Warframe (macOS, Windows, and Linux version)
+Exodia Contagion Macro for Warframe (macOS version + windows version)
 Made by Spacii-AN
 
 IMPORTANT:
 - Ensure "Melee with Fire Weapon Input" setting is OFF in Warframe
 - This script requires accessibility permissions on macOS
-- On Linux, may require xdotool or wmctrl for window detection (optional)
 - Required dependencies: 
   - pip install pynput
   - For Windows: pip install pywin32 (to suppress beeping)
@@ -18,6 +17,7 @@ import threading
 import os
 import sys
 import subprocess
+import signal
 import psutil
 from pynput import keyboard, mouse
 from pynput.keyboard import Key, KeyCode
@@ -37,37 +37,79 @@ else:
     WINDOWS_DIRECT_INPUT = False
 
 
-# Configuration
+def get_side_mouse_button(button_number=1):
+    """
+    Get the side mouse button in a cross-platform way.
+    pynput uses button8/button9 for side mouse buttons on all platforms.
+    button_number: 1 for first side button (x1/button8), 2 for second side button (x2/button9)
+    """
+    if button_number == 1:
+        return Button.button8  # First side mouse button (x1)
+    else:  # button_number == 2
+        return Button.button9  # Second side mouse button (x2)
+
+
+# ============================================================================
+# KEYBIND CONFIGURATION
+# ============================================================================
+
+# Enable/disable alternative macro button (second side mouse button)
+ENABLE_MACRO_ALT = True  # Set to False to disable the second side mouse button
+
 KEYBINDS = {
     'melee': 'e',
     'jump': Key.space,
     'aim': Button.right,
     'fire': Button.left,
     'emote': '.',
-    'macro': Button.button8,  # Side mouse button (x1) - first side button
-    'macro_alt': Button.button9,  # Alternative side mouse button (x2) - second side button
+    'macro': get_side_mouse_button(1),  # First side mouse button (x1/button8) - cross-platform
+    'macro_alt': get_side_mouse_button(2) if ENABLE_MACRO_ALT else None,  # Second side mouse button (x2/button9) - set ENABLE_MACRO_ALT = False to disable
     'rapid_click': 'j',  # New keybind for rapid click macro
 }
 
+# ============================================================================
+# TIMING CONFIGURATION - Adjust these values to fine-tune the macro
+# ============================================================================
+
+# Game FPS - Set this to match your in-game FPS for optimal timing
 FPS = 115
 
-# Timing calculations (milliseconds converted to seconds for Python)
-DOUBLE_JUMP_DELAY = 1100 / FPS / 1000
-AIM_MELEE_DELAY = 0.025  # Faster delay for quicker melee
+# Jump Timing
+JUMP_DELAY_MS = 1100  # Milliseconds between jumps (and emote presses)
+DOUBLE_JUMP_DELAY = JUMP_DELAY_MS / FPS / 1000  # Converted to seconds
 
-# Emote cancel timing based on FPS formula: -26 * ln(fps) + 245
-_raw_emote_delay = (-26 * math.log(FPS) + 245) / 1000
-EMOTE_PREPARATION_DELAY = max(0, _raw_emote_delay)
-if _raw_emote_delay < 0:
-    print(f"WARNING: FPS {FPS} is too high for optimal emote cancel timing. Using minimum delay.")
+# Aim & Melee Timing
+AIM_MELEE_DELAY = 0.025  # Seconds: Delay between pressing aim and pressing melee (lower = faster)
+MELEE_HOLD_TIME = 0.050  # Seconds: How long to hold melee key
 
-# Add rapid click configuration
-RAPID_CLICK_COUNT = 10
-RAPID_CLICK_DELAY = 0.05
+# Emote Cancel Timing
+# Formula-based: -26 * ln(fps) + 245 (automatically calculated)
+# You can override this by setting EMOTE_PREPARATION_DELAY directly below
+USE_EMOTE_FORMULA = True  # Set to False to use manual delay
+EMOTE_PREPARATION_DELAY_MANUAL = 0.100  # Seconds: Manual emote delay (if USE_EMOTE_FORMULA = False)
+
+if USE_EMOTE_FORMULA:
+    _raw_emote_delay = (-26 * math.log(FPS) + 245) / 1000
+    EMOTE_PREPARATION_DELAY = max(0, _raw_emote_delay)
+    if _raw_emote_delay < 0:
+        print(f"WARNING: FPS {FPS} is too high for optimal emote cancel timing. Using minimum delay.")
+else:
+    EMOTE_PREPARATION_DELAY = EMOTE_PREPARATION_DELAY_MANUAL
+
+# Rapid Fire Timing
+RAPID_FIRE_DURATION_MS = 230  # Milliseconds: Total duration of rapid fire sequence
+RAPID_FIRE_CLICK_DELAY = 0.001  # Seconds: Delay between each rapid fire click (lower = faster)
+
+# Sequence Loop Timing
+SEQUENCE_END_DELAY = 0.050  # Seconds: Delay at end of sequence before next loop
+LOOP_DELAY = 0.0005  # Seconds: Delay between sequence loops (lower = faster repetition)
+
+# Rapid Click Macro (separate from main sequence)
+RAPID_CLICK_COUNT = 10  # Number of clicks for rapid click macro
+RAPID_CLICK_DELAY = 0.05  # Seconds: Delay between rapid clicks
 
 # Global state
 running = False
-button_held = False  # Track if macro button is currently held
 macro_enabled = True
 warframe_active = False
 rapid_clicking = False
@@ -84,19 +126,9 @@ def set_high_priority():
         if sys.platform == "darwin":
             os.nice(10)
         elif sys.platform == "win32":
+            import psutil
             p = psutil.Process(os.getpid())
             p.nice(psutil.HIGH_PRIORITY_CLASS)
-        elif sys.platform == "linux":
-            # Linux: use nice to increase priority (negative values = higher priority)
-            # Note: May require root or proper permissions
-            try:
-                os.nice(-10)
-            except PermissionError:
-                # If we can't set high priority, try at least normal priority
-                try:
-                    os.nice(0)
-                except Exception:
-                    pass
     except Exception as e:
         print(f"Failed to set process priority: {e}")
 
@@ -113,57 +145,12 @@ def is_warframe_active():
             hwnd = win32gui.GetForegroundWindow()
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             
+            import psutil
             try:
                 proc = psutil.Process(pid)
                 return proc.name().lower() == "warframe.x64.exe"
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 return False
-        elif sys.platform == "linux":
-            # Try xdotool first (most common on X11)
-            try:
-                result = subprocess.run(
-                    ["xdotool", "getactivewindow", "getwindowname"],
-                    capture_output=True,
-                    text=True,
-                    timeout=0.5
-                )
-                if result.returncode == 0:
-                    window_name = result.stdout.strip().lower()
-                    return "warframe" in window_name
-            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-                pass
-            
-            # Try wmctrl as fallback
-            try:
-                result = subprocess.run(
-                    ["wmctrl", "-l"],
-                    capture_output=True,
-                    text=True,
-                    timeout=0.5
-                )
-                if result.returncode == 0:
-                    # Find active window (marked with *)
-                    for line in result.stdout.split('\n'):
-                        if '*' in line and 'warframe' in line.lower():
-                            return True
-            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-                pass
-            
-            # Fallback: check if Warframe process is running
-            # This is less accurate but works without window manager tools
-            try:
-                for proc in psutil.process_iter(['pid', 'name']):
-                    try:
-                        proc_name = proc.info['name'].lower()
-                        if 'warframe' in proc_name or 'warframe.x64' in proc_name:
-                            return True
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        continue
-            except Exception:
-                pass
-            
-            # If we can't determine, assume Warframe is active (safer for macro)
-            return True
         return True
     except Exception:
         return True
@@ -171,14 +158,13 @@ def is_warframe_active():
 
 def background_app_check():
     """Monitor the active application in a background thread."""
-    global running, button_held, warframe_active
+    global running, warframe_active
     
     while True:
         current_state = is_warframe_active()
         
         if not current_state and running:
             running = False
-            button_held = False
             print("Warframe window lost focus - macro stopped")
         
         warframe_active = current_state
@@ -214,7 +200,7 @@ def precise_sleep(seconds):
 
 def press_key(key):
     """Press and release a keyboard key."""
-    if not running or not button_held:
+    if not running:
         return
     
     # Convert string keys to KeyCode objects
@@ -236,7 +222,7 @@ def click_mouse(button):
 
 def execute_contagion_sequence():
     """Execute one complete Exodia Contagion sequence."""
-    if not running or not button_held:
+    if not running:
         return
         
     # Double jump
@@ -254,7 +240,7 @@ def execute_contagion_sequence():
     
     print("Pressing melee...")
     press_key(KEYBINDS['melee'])
-    precise_sleep(0.050)  # Faster melee hold time
+    precise_sleep(MELEE_HOLD_TIME)
     
     print("Releasing aim...")
     mouse.release(KEYBINDS['aim'])
@@ -271,43 +257,36 @@ def execute_contagion_sequence():
     # Rapid fire
     start_time = time.time()
     
-    if not running or not button_held:
+    if not running:
         return
     
     while True:
-        if not running or not button_held:
-            break
         click_mouse(KEYBINDS['fire'])
-        precise_sleep(0.001)
+        precise_sleep(RAPID_FIRE_CLICK_DELAY)
         
-        if not running or not button_held:
+        if not running:
             break
             
         current_time = time.time()
         elapsed_ms = (current_time - start_time) * 1000
         
-        if elapsed_ms > 230:
+        if elapsed_ms > RAPID_FIRE_DURATION_MS:
             break
     
     # End-of-sequence delay
-    if running and button_held:
-        precise_sleep(0.050)
+    if running:
+        precise_sleep(SEQUENCE_END_DELAY)
 
 
 def contagion_loop():
     """Main loop that executes contagion sequences while key is held."""
-    global running, button_held
+    global running
     
     try:
-        while running and button_held:
+        while running:
             execute_contagion_sequence()
-            # Check button state more frequently
-            if not button_held:
-                break
-            precise_sleep(0.0005)
+            precise_sleep(LOOP_DELAY)
     finally:
-        running = False
-        button_held = False
         kb.release(KEYBINDS['melee'])
         kb.release(KEYBINDS['emote'])
         mouse.release(KEYBINDS['aim'])
@@ -402,65 +381,79 @@ def on_release(key):
 
 def on_click(x, y, button, pressed):
     """Handle mouse click events."""
-    global running, button_held, macro_enabled, warframe_active
+    global running, macro_enabled, warframe_active
     
     try:
         warframe_active = is_warframe_active()
         if not warframe_active:
             return
             
+        # Check for contagion macro key (mouse button)
         # Check for contagion macro key (side mouse buttons)
-        if button == KEYBINDS['macro'] or button == KEYBINDS['macro_alt']:
+        macro_button = KEYBINDS.get('macro')
+        macro_alt_button = KEYBINDS.get('macro_alt')
+        if button == macro_button or (ENABLE_MACRO_ALT and macro_alt_button and button == macro_alt_button):
             if pressed and not running and macro_enabled:
-                button_held = True
                 running = True
                 thread = threading.Thread(target=contagion_loop)
                 thread.daemon = True
                 thread.start()
-            elif not pressed:
-                # Immediately stop when button is released
-                button_held = False
+            elif not pressed and running:
                 running = False
     except AttributeError:
         pass
 
 
+def cleanup_and_exit(signum=None, frame=None):
+    """Clean up resources and exit gracefully."""
+    global running
+    running = False
+    print("\n\nShutting down macro...")
+    print("Goodbye!")
+    sys.exit(0)
+
+
 def main():
     """Main program entry point."""
-    set_high_priority()
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, cleanup_and_exit)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, cleanup_and_exit)
     
-    # Platform-specific messages
-    platform_name = {
-        "darwin": "macOS",
-        "win32": "Windows",
-        "linux": "Linux"
-    }.get(sys.platform, sys.platform)
-    
-    print(f"=== Exodia Contagion Macro for Warframe ({platform_name}) ===")
-    
-    if sys.platform == "linux":
-        print("\nNOTE: For better window detection on Linux, consider installing:")
-        print("  - xdotool: sudo apt install xdotool (or equivalent)")
-        print("  - wmctrl: sudo apt install wmctrl (or equivalent)")
-        print("  (The macro will still work without these, using process detection)")
-    
-    print("\nKEY SETTINGS:")
-    print(f"  - Hold side mouse button (x1 or x2) to activate the contagion sequence")
-    print(f"  - Press '{KEYBINDS['rapid_click']}' to perform {RAPID_CLICK_COUNT} rapid clicks")
-    print("  - Press F11 to toggle all macros on/off")
-    print(f"\nDEBUG INFO:")
-    print(f"  - Melee key: '{KEYBINDS['melee']}'")
-    print(f"  - Jump key: {KEYBINDS['jump']}")
-    print(f"  - Aim button: {KEYBINDS['aim']}")
-    print(f"  - Fire button: {KEYBINDS['fire']}")
-    print(f"  - Emote key: '{KEYBINDS['emote']}'")
-    
-    start_background_check()
-    print("Starting macro listener...")
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as kb_listener, \
-         MouseListener(on_click=on_click) as mouse_listener:
-        kb_listener.join()
-        mouse_listener.join()
+    try:
+        set_high_priority()
+        
+        # Platform-specific messages
+        platform_name = {
+            "darwin": "macOS",
+            "win32": "Windows",
+            "linux": "Linux"
+        }.get(sys.platform, sys.platform)
+        
+        print(f"=== Exodia Contagion Macro for Warframe ({platform_name}) ===")
+        print("\nKEY SETTINGS:")
+        print(f"  - Hold side mouse button (x1 or x2) to activate the contagion sequence")
+        print(f"  - Press '{KEYBINDS['rapid_click']}' to perform {RAPID_CLICK_COUNT} rapid clicks")
+        print("  - Press F11 to toggle all macros on/off")
+        print(f"\nDEBUG INFO:")
+        print(f"  - Melee key: '{KEYBINDS['melee']}'")
+        print(f"  - Jump key: {KEYBINDS['jump']}")
+        print(f"  - Aim button: {KEYBINDS['aim']}")
+        print(f"  - Fire button: {KEYBINDS['fire']}")
+        print(f"  - Emote key: '{KEYBINDS['emote']}'")
+        print("\nPress Ctrl+C to exit\n")
+        
+        start_background_check()
+        print("Starting macro listener...")
+        with keyboard.Listener(on_press=on_press, on_release=on_release) as kb_listener, \
+             MouseListener(on_click=on_click) as mouse_listener:
+            kb_listener.join()
+            mouse_listener.join()
+    except KeyboardInterrupt:
+        cleanup_and_exit()
+    except Exception as e:
+        print(f"\nError: {e}")
+        cleanup_and_exit()
 
 
 if __name__ == "__main__":
