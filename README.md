@@ -102,6 +102,8 @@ If you prefer to install manually:
 
 ## Configuration
 
+> **📝 Configuration File**: All configuration is done by editing `pt-macro.py`. Open this file in any text editor to customize keybinds and timing settings.
+
 ### Warframe Settings
 **IMPORTANT**: Before using the macro, ensure this setting is OFF in Warframe:
 - `Melee with Fire Weapon Input` → **OFF**
@@ -132,11 +134,11 @@ KEYBINDS = {
 - You can **manually override** by setting `'macro'` and `'macro_alt'` to any button/key you want (see examples below)
 
 #### Disabling Alternative Macro Button
-If you only want to use one side mouse button, set `ENABLE_MACRO_ALT = False` on line 47. This will disable the second side mouse button (x2/button9) from triggering the macro.
+If you only want to use one side mouse button, open `pt-macro.py` and set `ENABLE_MACRO_ALT = False` on line 47. This will disable the second side mouse button (x2/button9) from triggering the macro.
 
 #### Changing the Macro Button
 
-You can easily change the macro button by editing the `'macro'` value in `KEYBINDS`. Here are examples:
+You can easily change the macro button by editing the `'macro'` value in `KEYBINDS` in `pt-macro.py`. Here are examples:
 
 **Side Mouse Buttons (Platform-Specific):**
 ```python
@@ -183,7 +185,9 @@ You can easily change the macro button by editing the `'macro'` value in `KEYBIN
 
 ### Fine-Tuning the Macro
 
-All timing values are now organized in a dedicated **TIMING CONFIGURATION** section (lines 64-106) for easy adjustment. The configuration is clearly separated from code logic with an "END OF USER CONFIGURATION" marker at line 107. Here's what each setting does:
+> **📝 Remember**: All timing adjustments are made in `pt-macro.py`. Open the file and look for the **TIMING CONFIGURATION** section (lines 64-106). The configuration is clearly separated from code logic with an "END OF USER CONFIGURATION" marker at line 107.
+
+All timing values are now organized in a dedicated **TIMING CONFIGURATION** section (lines 64-106) for easy adjustment. Here's what each setting does:
 
 #### Game FPS (Line 71)
 ```python
@@ -323,8 +327,8 @@ The macro automatically stops if:
 - Verify you have the required permissions (macOS accessibility, Linux input device access)
 
 ### Macro runs but timing is off
-- Adjust the `FPS` variable (line 71) to match your actual in-game FPS
-- Fine-tune individual timing values in the **TIMING CONFIGURATION** section (lines 64-106)
+- Open `pt-macro.py` and adjust the `FPS` variable (line 71) to match your actual in-game FPS
+- Fine-tune individual timing values in the **TIMING CONFIGURATION** section (lines 64-106) of `pt-macro.py`
 - See the "Fine-Tuning the Macro" section above for detailed timing adjustments
 - Check that your system can handle the precision timing
 
