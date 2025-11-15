@@ -1,0 +1,31 @@
+[package]
+name = "pt-macro"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# High-performance input simulation
+enigo = "0.2"
+# Cross-platform input listening (lightweight)
+device_query = "1.0"
+# Process management for window detection
+sysinfo = "0.31"
+# Signal handling
+ctrlc = "3.4"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "handleapi", "winnt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3          # Maximum optimizations
+lto = true            # Link-time optimization
+codegen-units = 1     # Better optimization
+panic = 'abort'       # Smaller binary
+strip = true          # Strip symbols
+
+[profile.dev]
+opt-level = 1         # Some optimization even in dev mode
+
