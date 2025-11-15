@@ -12,6 +12,9 @@ use device_query::{DeviceQuery, DeviceState, Keycode};
 use enigo::{Enigo, Settings, Keyboard, Mouse};
 use sysinfo::System;
 
+#[cfg(target_os = "linux")]
+use evdev;
+
 use config::SharedConfig;
 
 // ============================================================================
@@ -485,9 +488,85 @@ fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
         let mut last_macro_state = false;
         let mut last_rapid_click_state = false;
         
+        // On Linux, open evdev device for side button detection
+        #[cfg(target_os = "linux")]
+        let mut evdev_device: Option<evdev::Device> = {
+            use std::fs;
+            use std::path::Path;
+            let input_dir = Path::new("/dev/input");
+            let mut found_device = None;
+            if let Ok(entries) = fs::read_dir(input_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("event") {
+                            match evdev::Device::open(&path) {
+                                Ok(device) => {
+                                    let name_lower = device.name().unwrap_or_default().to_lowercase();
+                                    if name_lower.contains("mouse") || name_lower.contains("pointer") {
+                                        println!("Found mouse device for side button detection: {}", device.name().unwrap_or_default());
+                                        found_device = Some(device);
+                                        break;
+                                    }
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                    }
+                }
+            }
+            if found_device.is_none() {
+                println!("⚠️  Could not open evdev device for side button detection.");
+                println!("   Side buttons may not work. Add yourself to 'input' group:");
+                println!("   sudo usermod -aG input $USER  (then log out/in)");
+            }
+            found_device
+        };
+        
+        // Track side button states manually for evdev
+        #[cfg(target_os = "linux")]
+        let mut side_button_8_pressed = false;
+        #[cfg(target_os = "linux")]
+        let mut side_button_9_pressed = false;
+        
         loop {
             let keys = device_state.get_keys();
             let mouse = device_state.get_mouse();
+            
+            // On Linux, check evdev for side button events
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(ref mut evdev) = evdev_device {
+                    // Read all available events (non-blocking)
+                    match evdev.fetch_events() {
+                        Ok(events) => {
+                            for event in events {
+                                // Check if this is a key event (EV_KEY = 1)
+                                if event.event_type().0 == 1 {
+                                    let code = event.code();
+                                    let value = event.value();
+                                    
+                                    // BTN_SIDE = 0x113 (275), BTN_EXTRA = 0x114 (276)
+                                    if code == 0x113 || code == 275 {
+                                        side_button_8_pressed = value != 0;
+                                        if value != 0 {
+                                            println!("Side button 8 (BTN_SIDE) pressed");
+                                        }
+                                    } else if code == 0x114 || code == 276 {
+                                        side_button_9_pressed = value != 0;
+                                        if value != 0 {
+                                            println!("Side button 9 (BTN_EXTRA) pressed");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // No events available or device disconnected - this is normal
+                        }
+                    }
+                }
+            }
             
             // Get current config
             let config_snapshot = config_input.lock().unwrap().clone();
@@ -519,13 +598,42 @@ fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
                 
                 // Check for macro button
                 let macro_button_idx = keybinds.macro_button;
-                let macro_pressed = macro_button_idx < mouse.button_pressed.len() 
-                    && mouse.button_pressed[macro_button_idx]
-                    || (keybinds.macro_alt.is_some() 
-                        && {
-                            let alt_idx = keybinds.macro_alt.unwrap();
-                            alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx]
-                        });
+                let mut macro_pressed = false;
+                
+                // Check via device_query for standard buttons
+                if macro_button_idx < mouse.button_pressed.len() {
+                    macro_pressed = mouse.button_pressed[macro_button_idx];
+                }
+                
+                // On Linux, also check evdev for side buttons (indices 8 and 9)
+                #[cfg(target_os = "linux")]
+                {
+                    if macro_button_idx == 8 {
+                        macro_pressed = macro_pressed || side_button_8_pressed;
+                    } else if macro_button_idx == 9 {
+                        macro_pressed = macro_pressed || side_button_9_pressed;
+                    }
+                }
+                
+                // Check alternative macro button if enabled
+                if keybinds.macro_alt.is_some() {
+                    let alt_idx = keybinds.macro_alt.unwrap();
+                    
+                    // Check via device_query
+                    if alt_idx < mouse.button_pressed.len() {
+                        macro_pressed = macro_pressed || mouse.button_pressed[alt_idx];
+                    }
+                    
+                    // On Linux, also check evdev for side buttons
+                    #[cfg(target_os = "linux")]
+                    {
+                        if alt_idx == 8 {
+                            macro_pressed = macro_pressed || side_button_8_pressed;
+                        } else if alt_idx == 9 {
+                            macro_pressed = macro_pressed || side_button_9_pressed;
+                        }
+                    }
+                }
                 
                 if macro_pressed && !last_macro_state 
                     && !state_input.running.load(Ordering::Relaxed)
