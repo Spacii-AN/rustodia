@@ -12,6 +12,9 @@ use device_query::{DeviceQuery, DeviceState, Keycode};
 use enigo::{Enigo, Settings, Keyboard, Mouse};
 use sysinfo::System;
 
+#[cfg(target_os = "linux")]
+use evdev;
+
 use config::SharedConfig;
 
 // ============================================================================
@@ -480,51 +483,170 @@ fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
     // Input monitoring loop
     let state_input = Arc::clone(&state);
     let config_input = Arc::clone(&config);
-    thread::spawn(move || {
-        let device_state = DeviceState::new();
-        let mut last_macro_state = false;
-        let mut last_rapid_click_state = false;
-        
-        loop {
-            let keys = device_state.get_keys();
-            let mouse = device_state.get_mouse();
+    
+    // On Linux, create shared state for evdev side button tracking
+    #[cfg(target_os = "linux")]
+    let evdev_button_state: Arc<Mutex<std::collections::HashMap<usize, bool>>> = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Start evdev monitoring thread for side buttons on Linux
+        let evdev_state_clone = Arc::clone(&evdev_button_state);
+        thread::spawn(move || {
+            use std::fs;
+            use std::path::Path;
+            let input_dir = Path::new("/dev/input");
+            let mut devices: Vec<evdev::Device> = Vec::new();
             
-            // Get current config
-            let config_snapshot = config_input.lock().unwrap().clone();
-            let keybinds = config_snapshot.to_keybinds();
-            
-            // Check for F11 toggle
-            if keys.contains(&Keycode::F11) {
-                let current = state_input.macro_enabled.load(Ordering::Relaxed);
-                state_input.macro_enabled.store(!current, Ordering::Relaxed);
-                println!("Macro {}", if !current { "enabled" } else { "disabled" });
-                thread::sleep(Duration::from_millis(200)); // Debounce
+            // Try to find and open mouse devices
+            if let Ok(entries) = fs::read_dir(input_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("event") {
+                            match evdev::Device::open(&path) {
+                                Ok(device) => {
+                                    let name_lower = device.name().unwrap_or_default().to_lowercase();
+                                    if name_lower.contains("mouse") || name_lower.contains("pointer") {
+                                        println!("Found mouse device for side button detection: {}", device.name().unwrap_or_default());
+                                        devices.push(device);
+                                    }
+                                }
+                                Err(_) => {
+                                    // Permission denied is expected if not in input group, skip silently
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
-            // Only process macro inputs if Warframe is active (to avoid interfering with GUI)
-            let warframe_active = state_input.warframe_active.load(Ordering::Relaxed);
+            if devices.is_empty() {
+                eprintln!("⚠️  No evdev mouse devices found. Side buttons may not work.");
+                eprintln!("   Add yourself to the 'input' group: sudo usermod -aG input $USER");
+                return;
+            }
             
-            if warframe_active {
-                // Check for rapid click key
-                let rapid_click_pressed = keys.contains(&keybinds.rapid_click);
-                if rapid_click_pressed && !last_rapid_click_state 
-                    && state_input.macro_enabled.load(Ordering::Relaxed) {
-                    let state_clone = Arc::clone(&state_input);
-                    let config_clone = Arc::clone(&config_input);
-                    thread::spawn(move || {
-                        execute_rapid_click(state_clone, config_clone);
-                    });
+            // Monitor all mouse devices for side button events
+            loop {
+                for device in &mut devices {
+                    match device.fetch_events() {
+                        Ok(events) => {
+                            for event in events {
+                                // EV_KEY = 1
+                                if event.event_type().0 == 1 {
+                                    let code = event.code();
+                                    let value = event.value();
+                                    // BTN_SIDE = 275 (0x113), BTN_EXTRA = 276 (0x114)
+                                    // Map to button indices: 8 for BTN_SIDE, 9 for BTN_EXTRA
+                                    if code == 275 {
+                                        // Side button 1 -> index 8
+                                        let mut state = evdev_state_clone.lock().unwrap();
+                                        state.insert(8, value == 1);
+                                    } else if code == 276 {
+                                        // Side button 2 -> index 9
+                                        let mut state = evdev_state_clone.lock().unwrap();
+                                        state.insert(9, value == 1);
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // Device might be disconnected or no events available
+                            // Continue to next device
+                        }
+                    }
                 }
-                last_rapid_click_state = rapid_click_pressed;
+                thread::sleep(Duration::from_millis(1)); // Poll evdev every 1ms
+            }
+        });
+    }
+    
+    thread::spawn({
+        #[cfg(target_os = "linux")]
+        let evdev_button_state_input = Arc::clone(&evdev_button_state);
+        move || {
+            let device_state = DeviceState::new();
+            let mut last_macro_state = false;
+            let mut last_rapid_click_state = false;
+            
+            loop {
+                let keys = device_state.get_keys();
+                let mouse = device_state.get_mouse();
                 
-                // Check for macro button
-                let macro_button_idx = keybinds.macro_button;
-                let macro_pressed = macro_button_idx < mouse.button_pressed.len() 
-                    && mouse.button_pressed[macro_button_idx]
-                    || (keybinds.macro_alt.is_some() 
+                // Get current config
+                let config_snapshot = config_input.lock().unwrap().clone();
+                let keybinds = config_snapshot.to_keybinds();
+                
+                // Check for F11 toggle
+                if keys.contains(&Keycode::F11) {
+                    let current = state_input.macro_enabled.load(Ordering::Relaxed);
+                    state_input.macro_enabled.store(!current, Ordering::Relaxed);
+                    println!("Macro {}", if !current { "enabled" } else { "disabled" });
+                    thread::sleep(Duration::from_millis(200)); // Debounce
+                }
+                
+                // Only process macro inputs if Warframe is active (to avoid interfering with GUI)
+                let warframe_active = state_input.warframe_active.load(Ordering::Relaxed);
+                
+                if warframe_active {
+                    // Check for rapid click key
+                    let rapid_click_pressed = keys.contains(&keybinds.rapid_click);
+                    if rapid_click_pressed && !last_rapid_click_state 
+                        && state_input.macro_enabled.load(Ordering::Relaxed) {
+                        let state_clone = Arc::clone(&state_input);
+                        let config_clone = Arc::clone(&config_input);
+                        thread::spawn(move || {
+                            execute_rapid_click(state_clone, config_clone);
+                        });
+                    }
+                    last_rapid_click_state = rapid_click_pressed;
+                    
+                    // Check for macro button
+                    // On Linux, also check evdev state for side buttons (8, 9)
+                    let macro_button_idx = keybinds.macro_button;
+                    let macro_pressed = {
+                        let device_query_pressed = macro_button_idx < mouse.button_pressed.len() 
+                            && mouse.button_pressed[macro_button_idx];
+                        
+                        #[cfg(target_os = "linux")]
+                        let evdev_pressed = {
+                            if macro_button_idx == 8 || macro_button_idx == 9 {
+                                evdev_button_state_input.lock().unwrap()
+                                    .get(&macro_button_idx)
+                                    .copied()
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            }
+                        };
+                        
+                        #[cfg(not(target_os = "linux"))]
+                        let evdev_pressed = false;
+                        
+                        device_query_pressed || evdev_pressed
+                    } || (keybinds.macro_alt.is_some() 
                         && {
                             let alt_idx = keybinds.macro_alt.unwrap();
-                            alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx]
+                            let device_query_alt = alt_idx < mouse.button_pressed.len() 
+                                && mouse.button_pressed[alt_idx];
+                            
+                            #[cfg(target_os = "linux")]
+                            let evdev_alt = {
+                                if alt_idx == 8 || alt_idx == 9 {
+                                    evdev_button_state_input.lock().unwrap()
+                                        .get(&alt_idx)
+                                        .copied()
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                }
+                            };
+                            
+                            #[cfg(not(target_os = "linux"))]
+                            let evdev_alt = false;
+                            
+                            device_query_alt || evdev_alt
                         });
                 
                 if macro_pressed && !last_macro_state 
