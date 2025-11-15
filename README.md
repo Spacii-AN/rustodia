@@ -6,7 +6,7 @@ A high-performance macro automation tool for Warframe's Exodia Contagion combo, 
 
 ## 🚀 Performance
 
-This Rust version offers significant performance improvements over the Python version:
+This Rust implementation is optimized for maximum performance:
 
 - **10-50x lower latency** - Near-instant input response
 - **5-10x lower CPU usage** - Minimal system impact
@@ -57,7 +57,7 @@ All configuration is done in `src/main.rs` in the configuration sections at the 
 - **Keybinds**: Lines 17-48
 - **Timing**: Lines 50-100
 
-The structure matches the Python version for easy migration.
+All settings are clearly organized at the top of the file for easy customization.
 
 ## Controls
 
@@ -102,10 +102,6 @@ sudo usermod -a -G input $USER
 
 **macOS**: Grant accessibility permissions in System Preferences → Security & Privacy → Privacy → Accessibility
 
-## Python Version (Legacy)
-
-The original Python implementation is available in the `python-version/` directory for reference or as a fallback option. See [python-version/README.md](python-version/README.md) for Python-specific documentation.
-
 ## License
 
 This project is provided as-is for personal use. Use at your own risk.
@@ -113,4 +109,3 @@ This project is provided as-is for personal use. Use at your own risk.
 ## Disclaimer
 
 This macro is for educational purposes. Ensure that using macros complies with Warframe's Terms of Service and your local regulations. The authors are not responsible for any consequences resulting from the use of this software.
-# rustodia
