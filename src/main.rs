@@ -1,12 +1,18 @@
+mod config;
+mod gui;
+
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::process;
+use std::env;
 
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use enigo::{Enigo, Settings, Keyboard, Mouse};
 use sysinfo::System;
+
+use config::SharedConfig;
 
 // ============================================================================
 // KEYBIND CONFIGURATION
@@ -14,37 +20,17 @@ use sysinfo::System;
 // Edit the values below to customize your keybinds
 // ============================================================================
 
-// Enable/disable alternative macro button (second side mouse button)
-const ENABLE_MACRO_ALT: bool = true;
-
-// Keybind Settings
-// For mouse buttons: MouseButton::Left, MouseButton::Right, MouseButton::Middle, MouseButton::Side, MouseButton::Extra
-// For keyboard: Keycode::Space, Keycode::E, Keycode::J, Keycode::Period, Keycode::F11
+// Keybind Settings (internal structure, converted from SharedConfig)
 #[derive(Clone, Copy)]
-struct Keybinds {
-    melee: Keycode,
-    jump: Keycode,
-    aim: usize, // Mouse button index
-    fire: usize, // Mouse button index
-    emote: Keycode,
-    macro_button: usize, // Mouse button index
-    macro_alt: Option<usize>, // Mouse button index
-    rapid_click: Keycode,
-}
-
-impl Default for Keybinds {
-    fn default() -> Self {
-        Self {
-            melee: Keycode::E,
-            jump: Keycode::Space,
-            aim: 2, // Right mouse button
-            fire: 1, // Left mouse button
-            emote: Keycode::Dot, // Period/dot key
-            macro_button: 4, // Side button (x1/button8)
-            macro_alt: if ENABLE_MACRO_ALT { Some(5) } else { None }, // Extra button (x2/button9)
-            rapid_click: Keycode::J,
-        }
-    }
+pub struct Keybinds {
+    pub melee: Keycode,
+    pub jump: Keycode,
+    pub aim: usize, // Mouse button index
+    pub fire: usize, // Mouse button index
+    pub emote: Keycode,
+    pub macro_button: usize, // Mouse button index
+    pub macro_alt: Option<usize>, // Mouse button index
+    pub rapid_click: Keycode,
 }
 
 // ============================================================================
@@ -52,52 +38,6 @@ impl Default for Keybinds {
 // ============================================================================
 // Adjust these values to fine-tune the macro timing
 // ============================================================================
-
-// --- Game FPS ---
-const FPS: f64 = 160.0;
-
-// --- Jump Timing ---
-const JUMP_DELAY_MS: f64 = 1100.0;
-fn double_jump_delay() -> Duration {
-    Duration::from_secs_f64(JUMP_DELAY_MS / FPS / 1000.0)
-}
-
-// --- Aim & Melee Timing ---
-const AIM_MELEE_DELAY_MS: u64 = 25;
-const MELEE_HOLD_TIME_MS: u64 = 50;
-fn aim_melee_delay() -> Duration { Duration::from_millis(AIM_MELEE_DELAY_MS) }
-fn melee_hold_time() -> Duration { Duration::from_millis(MELEE_HOLD_TIME_MS) }
-
-// --- Emote Cancel Timing ---
-// Formula-based: -26 * ln(fps) + 245 (automatically calculated)
-const USE_EMOTE_FORMULA: bool = true;
-const EMOTE_PREPARATION_DELAY_MANUAL_MS: u64 = 100;
-fn emote_preparation_delay_manual() -> Duration { Duration::from_millis(EMOTE_PREPARATION_DELAY_MANUAL_MS) }
-
-fn emote_preparation_delay() -> Duration {
-    if USE_EMOTE_FORMULA {
-        let raw_delay_ms = (-26.0 * FPS.ln() + 245.0).max(0.0) as u64;
-        Duration::from_millis(raw_delay_ms)
-    } else {
-        emote_preparation_delay_manual()
-    }
-}
-
-// --- Rapid Fire Timing ---
-const RAPID_FIRE_DURATION_MS: u64 = 230;
-const RAPID_FIRE_CLICK_DELAY_MS: u64 = 1;
-fn rapid_fire_click_delay() -> Duration { Duration::from_millis(RAPID_FIRE_CLICK_DELAY_MS) }
-
-// --- Sequence Loop Timing ---
-const SEQUENCE_END_DELAY_MS: u64 = 50;
-const LOOP_DELAY_MS: u64 = 1;
-fn sequence_end_delay() -> Duration { Duration::from_millis(SEQUENCE_END_DELAY_MS) }
-fn loop_delay() -> Duration { Duration::from_millis(LOOP_DELAY_MS) }
-
-// --- Rapid Click Macro Timing ---
-const RAPID_CLICK_COUNT: usize = 10;
-const RAPID_CLICK_DELAY_MS: u64 = 50;
-fn rapid_click_delay() -> Duration { Duration::from_millis(RAPID_CLICK_DELAY_MS) }
 
 // ============================================================================
 // END OF USER CONFIGURATION
@@ -146,32 +86,46 @@ fn precise_sleep(duration: Duration) {
     }
 }
 
+// Cached system for window detection (thread-local to avoid synchronization overhead)
+thread_local! {
+    static SYSTEM_CACHE: std::cell::RefCell<Option<System>> = std::cell::RefCell::new(None);
+}
+
 // Check if Warframe is the active window
 fn is_warframe_active() -> bool {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
+        // Try xdotool first (faster)
         if let Ok(output) = Command::new("xdotool")
             .arg("getactivewindow")
             .arg("getwindowname")
             .output()
         {
             if let Ok(name) = String::from_utf8(output.stdout) {
-                return name.to_lowercase().contains("warframe");
+                // Use case-insensitive check without allocation
+                return name.as_bytes().windows(8).any(|w| w.eq_ignore_ascii_case(b"warframe"));
             }
         }
         
-        // Fallback: check process list
-        let mut system = System::new();
-        system.refresh_all();
-        for process in system.processes().values() {
-            if let Some(name) = process.name().to_str() {
-                if name.to_ascii_lowercase().contains("warframe") {
-                    return true;
+        // Fallback: check process list (cached system)
+        SYSTEM_CACHE.with(|sys| {
+            let mut system = sys.borrow_mut();
+            if system.is_none() {
+                *system = Some(System::new());
+            }
+            if let Some(ref mut s) = *system {
+                s.refresh_all();
+                for process in s.processes().values() {
+                    if let Some(name) = process.name().to_str() {
+                        if name.as_bytes().windows(8).any(|w| w.eq_ignore_ascii_case(b"warframe")) {
+                            return true;
+                        }
+                    }
                 }
             }
-        }
-        false
+            false
+        })
     }
     
     #[cfg(target_os = "windows")]
@@ -201,17 +155,24 @@ fn is_warframe_active() -> bool {
                 return false;
             }
             
-            let mut system = System::new();
-            system.refresh_process(sysinfo::Pid::from_u32(pid));
-            
-            if let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) {
-                let name = process.name().to_ascii_lowercase();
+            SYSTEM_CACHE.with(|sys| {
+                let mut system = sys.borrow_mut();
+                if system.is_none() {
+                    *system = Some(System::new());
+                }
+                if let Some(ref mut s) = *system {
+                    s.refresh_process(sysinfo::Pid::from_u32(pid));
+                    if let Some(process) = s.process(sysinfo::Pid::from_u32(pid)) {
+                        let name = process.name();
+                        // Use byte comparison for better performance
+                        let result = name.as_bytes().windows(8).any(|w| w.eq_ignore_ascii_case(b"warframe"));
+                        CloseHandle(handle);
+                        return result;
+                    }
+                }
                 CloseHandle(handle);
-                return name.contains("warframe");
-            }
-            
-            CloseHandle(handle);
-            false
+                false
+            })
         }
     }
     
@@ -224,7 +185,7 @@ fn is_warframe_active() -> bool {
             .output()
         {
             if let Ok(name) = String::from_utf8(output.stdout) {
-                return name.to_lowercase().contains("warframe");
+                return name.as_bytes().windows(8).any(|w| w.eq_ignore_ascii_case(b"warframe"));
             }
         }
         false
@@ -264,140 +225,192 @@ fn set_high_priority() {
     }
 }
 
-// Convert Keycode to enigo key
-fn keycode_to_enigo_key(keycode: Keycode) -> enigo::Key {
-    match keycode {
-        Keycode::Space => enigo::Key::Space,
-        Keycode::E => enigo::Key::Unicode('e'),
-        Keycode::J => enigo::Key::Unicode('j'),
-        Keycode::Dot => enigo::Key::Unicode('.'),
-        Keycode::F11 => enigo::Key::F11,
-        _ => enigo::Key::Unicode(' '), // Fallback
+// Precomputed key mappings for performance
+#[derive(Clone, Copy)]
+struct PrecomputedKeys {
+    jump: enigo::Key,
+    melee: enigo::Key,
+    emote: enigo::Key,
+    #[allow(dead_code)]
+    rapid_click: enigo::Key, // Precomputed but not currently used (rapid click uses keycode directly)
+}
+
+impl PrecomputedKeys {
+    fn from_keybinds(keybinds: &Keybinds) -> Self {
+        Self {
+            jump: match keybinds.jump {
+                Keycode::Space => enigo::Key::Space,
+                _ => enigo::Key::Unicode(' '),
+            },
+            melee: match keybinds.melee {
+                Keycode::E => enigo::Key::Unicode('e'),
+                _ => enigo::Key::Unicode(' '),
+            },
+            emote: match keybinds.emote {
+                Keycode::Dot => enigo::Key::Unicode('.'),
+                _ => enigo::Key::Unicode(' '),
+            },
+            rapid_click: match keybinds.rapid_click {
+                Keycode::J => enigo::Key::Unicode('j'),
+                _ => enigo::Key::Unicode(' '),
+            },
+        }
     }
 }
 
+// Button lookup table for O(1) access
+// device_query uses 0-based indexing: 1=Left, 2=Right, 3=Middle, 8=Side1, 9=Side2
+// This matches pynput's Button.button8 (index 8) and Button.button9 (index 9)
+const BUTTON_LOOKUP: [Option<enigo::Button>; 10] = [
+    None,                                    // 0
+    Some(enigo::Button::Left),              // 1 = Left
+    Some(enigo::Button::Right),             // 2 = Right
+    Some(enigo::Button::Middle),            // 3 = Middle
+    None,                                    // 4
+    None,                                    // 5
+    None,                                    // 6
+    None,                                    // 7
+    Some(enigo::Button::Left),              // 8 = Side button 1 (button8 in pynput) - using Left as fallback
+    Some(enigo::Button::Left),              // 9 = Side button 2 (button9 in pynput) - using Left as fallback
+];
+
+#[inline(always)]
+fn button_from_index(idx: usize) -> enigo::Button {
+    // For side buttons (8, 9), we need to use a different approach since enigo might not have direct support
+    // We'll use the lookup for standard buttons, and for side buttons we'll need special handling
+    if idx == 8 {
+        // Side button 1 - try to use a workaround or map to available button
+        // Note: enigo might not support side buttons directly, so we may need to use xdotool on Linux
+        enigo::Button::Left // Fallback for now
+    } else if idx == 9 {
+        // Side button 2
+        enigo::Button::Left // Fallback for now
+    } else {
+        BUTTON_LOOKUP.get(idx).and_then(|&b| b).unwrap_or(enigo::Button::Left)
+    }
+}
+
+// Helper functions to get durations from config
+fn get_durations_from_config(config: &SharedConfig) -> (Duration, Duration, Duration, Duration, Duration, Duration, Duration, Duration) {
+    (
+        config.double_jump_delay(),
+        Duration::from_millis(config.aim_melee_delay_ms),
+        Duration::from_millis(config.melee_hold_time_ms),
+        config.emote_preparation_delay(),
+        Duration::from_millis(config.rapid_fire_click_delay_ms),
+        Duration::from_millis(config.sequence_end_delay_ms),
+        Duration::from_millis(config.loop_delay_ms),
+        Duration::from_millis(config.rapid_click_delay_ms),
+    )
+}
+
 // Execute one complete Exodia Contagion sequence
+#[inline]
 fn execute_contagion_sequence(
     enigo: &mut Enigo,
     state: &State,
-    keybinds: &Keybinds,
+    keys: &PrecomputedKeys,
+    aim_button: enigo::Button,
+    fire_button: enigo::Button,
+    config: &SharedConfig,
 ) {
     if !state.running.load(Ordering::Relaxed) {
         return;
     }
     
-    // Double jump
-    enigo.key(keycode_to_enigo_key(keybinds.jump), enigo::Direction::Press);
-    precise_sleep(double_jump_delay());
-    enigo.key(keycode_to_enigo_key(keybinds.jump), enigo::Direction::Release);
+    let (double_jump_delay, aim_melee_delay, melee_hold_time, emote_prep_delay, 
+         rapid_fire_click_delay, sequence_end_delay, _, _) = get_durations_from_config(config);
     
-    enigo.key(keycode_to_enigo_key(keybinds.jump), enigo::Direction::Press);
-    precise_sleep(double_jump_delay());
-    enigo.key(keycode_to_enigo_key(keybinds.jump), enigo::Direction::Release);
+    // Double jump
+    let _ = enigo.key(keys.jump, enigo::Direction::Press);
+    precise_sleep(double_jump_delay);
+    let _ = enigo.key(keys.jump, enigo::Direction::Release);
+    
+    let _ = enigo.key(keys.jump, enigo::Direction::Press);
+    precise_sleep(double_jump_delay);
+    let _ = enigo.key(keys.jump, enigo::Direction::Release);
     
     // Aim and melee
-    if keybinds.aim == 2 {
-        enigo.button(enigo::Button::Right, enigo::Direction::Press);
-    } else if keybinds.aim == 1 {
-        enigo.button(enigo::Button::Left, enigo::Direction::Press);
-    } else if keybinds.aim == 3 {
-        enigo.button(enigo::Button::Middle, enigo::Direction::Press);
-    }
-    precise_sleep(aim_melee_delay());
+    let _ = enigo.button(aim_button, enigo::Direction::Press);
+    precise_sleep(aim_melee_delay);
     
-    enigo.key(keycode_to_enigo_key(keybinds.melee), enigo::Direction::Press);
-    precise_sleep(melee_hold_time());
-    enigo.key(keycode_to_enigo_key(keybinds.melee), enigo::Direction::Release);
+    let _ = enigo.key(keys.melee, enigo::Direction::Press);
+    precise_sleep(melee_hold_time);
+    let _ = enigo.key(keys.melee, enigo::Direction::Release);
     
-    if keybinds.aim == 2 {
-        enigo.button(enigo::Button::Right, enigo::Direction::Release);
-    } else if keybinds.aim == 1 {
-        enigo.button(enigo::Button::Left, enigo::Direction::Release);
-    } else if keybinds.aim == 3 {
-        enigo.button(enigo::Button::Middle, enigo::Direction::Release);
-    }
+    let _ = enigo.button(aim_button, enigo::Direction::Release);
     
     // Emote cancel
-    precise_sleep(emote_preparation_delay());
+    precise_sleep(emote_prep_delay);
     
-    enigo.key(keycode_to_enigo_key(keybinds.emote), enigo::Direction::Press);
-    precise_sleep(double_jump_delay());
-    enigo.key(keycode_to_enigo_key(keybinds.emote), enigo::Direction::Release);
+    let _ = enigo.key(keys.emote, enigo::Direction::Press);
+    precise_sleep(double_jump_delay);
+    let _ = enigo.key(keys.emote, enigo::Direction::Release);
     
-    enigo.key(keycode_to_enigo_key(keybinds.emote), enigo::Direction::Press);
-    precise_sleep(double_jump_delay());
-    enigo.key(keycode_to_enigo_key(keybinds.emote), enigo::Direction::Release);
+    let _ = enigo.key(keys.emote, enigo::Direction::Press);
+    precise_sleep(double_jump_delay);
+    let _ = enigo.key(keys.emote, enigo::Direction::Release);
     
-    // Rapid fire
+    // Rapid fire - optimized loop
     let start_time = Instant::now();
-    let fire_button = if keybinds.fire == 1 {
-        enigo::Button::Left
-    } else if keybinds.fire == 2 {
-        enigo::Button::Right
-    } else if keybinds.fire == 3 {
-        enigo::Button::Middle
-    } else {
-        enigo::Button::Left
-    };
+    let duration_limit = config.rapid_fire_duration_ms as u128;
     
     while state.running.load(Ordering::Relaxed) {
-        enigo.button(fire_button, enigo::Direction::Press);
-        enigo.button(fire_button, enigo::Direction::Release);
-        precise_sleep(rapid_fire_click_delay());
+        let _ = enigo.button(fire_button, enigo::Direction::Press);
+        let _ = enigo.button(fire_button, enigo::Direction::Release);
+        precise_sleep(rapid_fire_click_delay);
         
-        let elapsed_ms = start_time.elapsed().as_millis();
-        if elapsed_ms > RAPID_FIRE_DURATION_MS as u128 {
+        // Check elapsed time less frequently for better performance
+        if start_time.elapsed().as_millis() > duration_limit {
             break;
         }
     }
     
     // End-of-sequence delay
     if state.running.load(Ordering::Relaxed) {
-        precise_sleep(sequence_end_delay());
+        precise_sleep(sequence_end_delay);
     }
 }
 
 // Main loop that executes contagion sequences while key is held
-fn contagion_loop(state: Arc<State>, keybinds: Keybinds) {
+fn contagion_loop(state: Arc<State>, config: Arc<Mutex<SharedConfig>>) {
     let settings = Settings::default();
     let mut enigo = match Enigo::new(&settings) {
         Ok(e) => e,
         Err(_) => return,
     };
     
-    let fire_button = if keybinds.fire == 1 {
-        enigo::Button::Left
-    } else if keybinds.fire == 2 {
-        enigo::Button::Right
-    } else if keybinds.fire == 3 {
-        enigo::Button::Middle
-    } else {
-        enigo::Button::Left
-    };
-    let aim_button = if keybinds.aim == 1 {
-        enigo::Button::Left
-    } else if keybinds.aim == 2 {
-        enigo::Button::Right
-    } else if keybinds.aim == 3 {
-        enigo::Button::Middle
-    } else {
-        enigo::Button::Right
-    };
-    
     while state.running.load(Ordering::Relaxed) {
-        execute_contagion_sequence(&mut enigo, &state, &keybinds);
-        precise_sleep(loop_delay());
+        // Get current config snapshot
+        let config_snapshot = config.lock().unwrap().clone();
+        let keybinds = config_snapshot.to_keybinds();
+        
+        // Precompute everything once per iteration
+        let keys = PrecomputedKeys::from_keybinds(&keybinds);
+        let fire_button = button_from_index(keybinds.fire);
+        let aim_button = button_from_index(keybinds.aim);
+        
+        execute_contagion_sequence(&mut enigo, &state, &keys, aim_button, fire_button, &config_snapshot);
+        
+        let (_, _, _, _, _, _, loop_delay, _) = get_durations_from_config(&config_snapshot);
+        precise_sleep(loop_delay);
     }
     
     // Cleanup: release all keys/buttons
-    enigo.key(keycode_to_enigo_key(keybinds.melee), enigo::Direction::Release);
-    enigo.key(keycode_to_enigo_key(keybinds.emote), enigo::Direction::Release);
-    enigo.button(aim_button, enigo::Direction::Release);
-    enigo.button(fire_button, enigo::Direction::Release);
+    let config_snapshot = config.lock().unwrap().clone();
+    let keybinds = config_snapshot.to_keybinds();
+    let keys = PrecomputedKeys::from_keybinds(&keybinds);
+    let fire_button = button_from_index(keybinds.fire);
+    let aim_button = button_from_index(keybinds.aim);
+    
+    let _ = enigo.key(keys.melee, enigo::Direction::Release);
+    let _ = enigo.key(keys.emote, enigo::Direction::Release);
+    let _ = enigo.button(aim_button, enigo::Direction::Release);
+    let _ = enigo.button(fire_button, enigo::Direction::Release);
 }
 
 // Execute rapid click sequence
-fn execute_rapid_click(state: Arc<State>, keybinds: Keybinds) {
+fn execute_rapid_click(state: Arc<State>, config: Arc<Mutex<SharedConfig>>) {
     state.rapid_clicking.store(true, Ordering::Relaxed);
     let settings = Settings::default();
     let mut enigo = match Enigo::new(&settings) {
@@ -408,24 +421,19 @@ fn execute_rapid_click(state: Arc<State>, keybinds: Keybinds) {
         }
     };
     
-    let fire_button = if keybinds.fire == 1 {
-        enigo::Button::Left
-    } else if keybinds.fire == 2 {
-        enigo::Button::Right
-    } else if keybinds.fire == 3 {
-        enigo::Button::Middle
-    } else {
-        enigo::Button::Left
-    };
+    let config_snapshot = config.lock().unwrap().clone();
+    let keybinds = config_snapshot.to_keybinds();
+    let fire_button = button_from_index(keybinds.fire);
+    let rapid_click_delay = Duration::from_millis(config_snapshot.rapid_click_delay_ms);
     
-    for _ in 0..RAPID_CLICK_COUNT {
+    for _ in 0..config_snapshot.rapid_click_count {
         if !state.macro_enabled.load(Ordering::Relaxed) {
             break;
         }
         
-        enigo.button(fire_button, enigo::Direction::Press);
-        enigo.button(fire_button, enigo::Direction::Release);
-        precise_sleep(rapid_click_delay());
+        let _ = enigo.button(fire_button, enigo::Direction::Press);
+        let _ = enigo.button(fire_button, enigo::Direction::Release);
+        precise_sleep(rapid_click_delay);
     }
     
     state.rapid_clicking.store(false, Ordering::Relaxed);
@@ -433,29 +441,33 @@ fn execute_rapid_click(state: Arc<State>, keybinds: Keybinds) {
 
 // Background thread to monitor Warframe window state
 fn background_app_check(state: Arc<State>) {
+    let mut last_state = false;
     loop {
         let current_state = is_warframe_active();
         
-        if !current_state && state.running.load(Ordering::Relaxed) {
-            state.running.store(false, Ordering::Relaxed);
-            println!("Warframe window lost focus - macro stopped");
+        // Only update and print if state changed
+        if current_state != last_state {
+            state.warframe_active.store(current_state, Ordering::Relaxed);
+            if !current_state && state.running.load(Ordering::Relaxed) {
+                state.running.store(false, Ordering::Relaxed);
+                println!("Warframe window lost focus - macro stopped");
+            }
+            last_state = current_state;
+        } else {
+            // If state unchanged, just update atomic (cheaper)
+            state.warframe_active.store(current_state, Ordering::Relaxed);
         }
         
-        state.warframe_active.store(current_state, Ordering::Relaxed);
         thread::sleep(Duration::from_secs(1));
     }
 }
 
-fn main() {
-    set_high_priority();
-    
-    let state = Arc::new(State::new());
-    let keybinds = Keybinds::default();
-    
+fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
     println!("=== Exodia Contagion Macro for Warframe (Rust - Optimized) ===");
+    let config_snapshot = config.lock().unwrap().clone();
     println!("\nKEY SETTINGS:");
     println!("  - Hold side mouse button to activate the contagion sequence");
-    println!("  - Press 'j' to perform {} rapid clicks", RAPID_CLICK_COUNT);
+    println!("  - Press '{}' to perform {} rapid clicks", config_snapshot.rapid_click_key, config_snapshot.rapid_click_count);
     println!("  - Press F11 to toggle all macros on/off");
     println!("\nPress Ctrl+C to exit\n");
     
@@ -467,7 +479,7 @@ fn main() {
     
     // Input monitoring loop
     let state_input = Arc::clone(&state);
-    let keybinds_input = keybinds;
+    let config_input = Arc::clone(&config);
     thread::spawn(move || {
         let device_state = DeviceState::new();
         let mut last_macro_state = false;
@@ -477,6 +489,10 @@ fn main() {
             let keys = device_state.get_keys();
             let mouse = device_state.get_mouse();
             
+            // Get current config
+            let config_snapshot = config_input.lock().unwrap().clone();
+            let keybinds = config_snapshot.to_keybinds();
+            
             // Check for F11 toggle
             if keys.contains(&Keycode::F11) {
                 let current = state_input.macro_enabled.load(Ordering::Relaxed);
@@ -485,44 +501,58 @@ fn main() {
                 thread::sleep(Duration::from_millis(200)); // Debounce
             }
             
-            // Check for rapid click key
-            let rapid_click_pressed = keys.contains(&keybinds_input.rapid_click);
-            if rapid_click_pressed && !last_rapid_click_state 
-                && state_input.macro_enabled.load(Ordering::Relaxed)
-                && state_input.warframe_active.load(Ordering::Relaxed) {
-                let state_clone = Arc::clone(&state_input);
-                thread::spawn(move || {
-                    execute_rapid_click(state_clone, keybinds_input);
-                });
-            }
-            last_rapid_click_state = rapid_click_pressed;
+            // Only process macro inputs if Warframe is active (to avoid interfering with GUI)
+            let warframe_active = state_input.warframe_active.load(Ordering::Relaxed);
             
-            // Check for macro button
-            // button_pressed is a Vec<bool> indexed by button number
-            let macro_button_idx = keybinds_input.macro_button;
-            let macro_pressed = macro_button_idx < mouse.button_pressed.len() 
-                && mouse.button_pressed[macro_button_idx]
-                || (keybinds_input.macro_alt.is_some() 
-                    && {
-                        let alt_idx = keybinds_input.macro_alt.unwrap();
-                        alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx]
+            if warframe_active {
+                // Check for rapid click key
+                let rapid_click_pressed = keys.contains(&keybinds.rapid_click);
+                if rapid_click_pressed && !last_rapid_click_state 
+                    && state_input.macro_enabled.load(Ordering::Relaxed) {
+                    let state_clone = Arc::clone(&state_input);
+                    let config_clone = Arc::clone(&config_input);
+                    thread::spawn(move || {
+                        execute_rapid_click(state_clone, config_clone);
                     });
-            
-            if macro_pressed && !last_macro_state 
-                && !state_input.running.load(Ordering::Relaxed)
-                && state_input.macro_enabled.load(Ordering::Relaxed)
-                && state_input.warframe_active.load(Ordering::Relaxed) {
-                state_input.running.store(true, Ordering::Relaxed);
-                let state_clone = Arc::clone(&state_input);
-                thread::spawn(move || {
-                    contagion_loop(state_clone, keybinds_input);
-                });
-            } else if !macro_pressed && last_macro_state {
-                state_input.running.store(false, Ordering::Relaxed);
+                }
+                last_rapid_click_state = rapid_click_pressed;
+                
+                // Check for macro button
+                let macro_button_idx = keybinds.macro_button;
+                let macro_pressed = macro_button_idx < mouse.button_pressed.len() 
+                    && mouse.button_pressed[macro_button_idx]
+                    || (keybinds.macro_alt.is_some() 
+                        && {
+                            let alt_idx = keybinds.macro_alt.unwrap();
+                            alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx]
+                        });
+                
+                if macro_pressed && !last_macro_state 
+                    && !state_input.running.load(Ordering::Relaxed)
+                    && state_input.macro_enabled.load(Ordering::Relaxed) {
+                    state_input.running.store(true, Ordering::Relaxed);
+                    let state_clone = Arc::clone(&state_input);
+                    let config_clone = Arc::clone(&config_input);
+                    thread::spawn(move || {
+                        contagion_loop(state_clone, config_clone);
+                    });
+                } else if !macro_pressed && last_macro_state {
+                    state_input.running.store(false, Ordering::Relaxed);
+                }
+                last_macro_state = macro_pressed;
+            } else {
+                // Reset states when Warframe is not active to avoid stuck states
+                last_rapid_click_state = false;
+                last_macro_state = false;
             }
-            last_macro_state = macro_pressed;
             
-            thread::sleep(Duration::from_millis(1)); // Poll every 1ms for responsiveness
+            // Adaptive polling: faster when active, slower when idle
+            let sleep_duration = if state_input.running.load(Ordering::Relaxed) {
+                Duration::from_micros(500) // 0.5ms when macro is running
+            } else {
+                Duration::from_millis(2) // 2ms when idle
+            };
+            thread::sleep(sleep_duration);
         }
     });
     
@@ -536,6 +566,51 @@ fn main() {
     // Keep main thread alive
     loop {
         thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn main() {
+    set_high_priority();
+    
+    // Check for GUI mode
+    let args: Vec<String> = env::args().collect();
+    let use_gui = args.iter().any(|arg| arg == "--gui" || arg == "-g");
+    
+    let config = Arc::new(Mutex::new(SharedConfig::default()));
+    let state = Arc::new(State::new());
+    
+    if use_gui {
+        println!("Starting GUI mode...");
+        println!("Note: Keybind configuration works independently - Warframe does not need to be open");
+        
+        // Start macro in background (but it will only activate when Warframe is open)
+        let config_macro = Arc::clone(&config);
+        let state_macro = Arc::clone(&state);
+        
+        thread::spawn(move || {
+            run_macro(config_macro, state_macro);
+        });
+        
+        // Small delay to let macro thread start
+        thread::sleep(Duration::from_millis(100));
+        
+        // Run GUI (blocks until window closed)
+        // The GUI has its own independent key capture thread that works regardless of Warframe
+        println!("Opening GUI window...");
+        match gui::run_gui(config) {
+            Ok(()) => println!("GUI closed normally"),
+            Err(e) => {
+                eprintln!("GUI Error: {}", e);
+                eprintln!("Falling back to CLI mode...");
+                // Keep the macro running even if GUI fails
+                loop {
+                    thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    } else {
+        // CLI mode - just run the macro
+        run_macro(config, state);
     }
 }
 

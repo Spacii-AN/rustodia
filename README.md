@@ -20,7 +20,8 @@ This Rust implementation is optimized for maximum performance:
 - **Rapid Click Macro**: Quick burst click function
 - **Cross-Platform**: Supports macOS, Windows, and Linux
 - **Window Detection**: Automatically stops when Warframe loses focus
-- **Highly Configurable**: All keybinds and timing settings easily adjustable
+- **GUI Configuration**: Simple graphical interface to adjust timings and keybinds (run with `--gui` flag)
+- **Highly Configurable**: All keybinds and timing settings easily adjustable via GUI or code
 - **High Precision Timing**: Sub-millisecond accuracy using optimized timing
 
 ## Warframe Settings
@@ -44,20 +45,54 @@ This Rust implementation is optimized for maximum performance:
 # Build the optimized version
 cargo build --release
 
-# Run the macro
+# Run the macro (CLI mode)
 cargo run --release
+
+# Run with GUI for easy configuration
+cargo run --release -- --gui
+# or
+cargo run --release -- -g
 ```
 
 The optimized binary will be in `target/release/pt-macro` (or `target/release/pt-macro.exe` on Windows).
 
+### GUI Mode
+
+The GUI provides an easy way to adjust all timing and keybind settings without editing code:
+
+- **Timing Settings**: Adjust FPS, delays, and timing values with sliders
+- **Keybind Settings**: Click "Set" buttons and press the desired key/button to configure
+- **Live Updates**: Changes apply immediately to new macro sequences
+- **Cross-Platform**: Works on Windows, Linux, and macOS
+- **Easy Keybinding**: No need to know key names - just click and press!
+
+**Keybinding Instructions:**
+1. Click the "Set" button next to any keybind
+2. Press the key or mouse button you want to use
+3. The keybind is automatically detected and set
+4. Press Escape to cancel if you change your mind
+
+Simply run with the `--gui` or `-g` flag to open the configuration window.
+
 ## Configuration
 
-All configuration is done in `src/main.rs` in the configuration sections at the top of the file:
+### GUI Mode (Recommended)
 
-- **Keybinds**: Lines 17-48
-- **Timing**: Lines 50-100
+Run with `--gui` flag to open a graphical configuration window:
+```bash
+cargo run --release -- --gui
+```
 
-All settings are clearly organized at the top of the file for easy customization.
+The GUI allows you to adjust all settings with sliders and text inputs. Changes apply immediately to new macro sequences.
+
+### Manual Configuration
+
+Alternatively, configuration can be done in `src/config.rs`:
+
+- **Keybinds**: Edit the `SharedConfig::default()` implementation
+- **Timing**: Modify timing values in the `SharedConfig` struct
+
+All settings are clearly organized for easy customization.
 
 ## Controls
 

@@ -12,17 +12,23 @@ device_query = "1.0"
 sysinfo = "0.31"
 # Signal handling
 ctrlc = "3.4"
+# Lazy static for precomputed values
+lazy_static = "1.4"
+# Simple cross-platform GUI
+eframe = { version = "0.27", default-features = true }
+egui = "0.27"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "handleapi", "winnt"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+evdev = "0.13"
 
 [profile.release]
 opt-level = 3          # Maximum optimizations
-lto = true            # Link-time optimization
-codegen-units = 1     # Better optimization
+lto = "thin"          # Faster link-time optimization (vs "fat"/true)
+codegen-units = 4     # Faster compilation (1 is slowest but best optimization)
 panic = 'abort'       # Smaller binary
 strip = true          # Strip symbols
 
