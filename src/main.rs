@@ -14,6 +14,9 @@ use sysinfo::System;
 
 use config::SharedConfig;
 
+#[cfg(target_os = "linux")]
+use evdev::Device;
+
 // ============================================================================
 // KEYBIND CONFIGURATION
 // ============================================================================
@@ -439,6 +442,91 @@ fn execute_rapid_click(state: Arc<State>, config: Arc<Mutex<SharedConfig>>) {
     state.rapid_clicking.store(false, Ordering::Relaxed);
 }
 
+// Track side button state (Linux only)
+#[cfg(target_os = "linux")]
+struct SideButtonState {
+    button8_pressed: bool,
+    button9_pressed: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl SideButtonState {
+    fn new() -> Self {
+        Self {
+            button8_pressed: false,
+            button9_pressed: false,
+        }
+    }
+    
+    fn update_from_evdev(&mut self, evdev_device: &mut Option<Device>) {
+        if let Some(ref mut device) = evdev_device {
+            // Try to read events (non-blocking)
+            if let Ok(events) = device.fetch_events() {
+                for event in events {
+                    if event.event_type().0 == 1 { // EV_KEY = 1
+                        let code = event.code();
+                        let value = event.value();
+                        
+                        // BTN_SIDE = 0x113 (275) = button 8
+                        // BTN_EXTRA = 0x114 (276) = button 9
+                        if code == 0x113 || code == 275 {
+                            self.button8_pressed = value == 1; // 1 = pressed, 0 = released
+                        } else if code == 0x114 || code == 276 {
+                            self.button9_pressed = value == 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn is_pressed(&self, button_idx: usize) -> bool {
+        match button_idx {
+            8 => self.button8_pressed,
+            9 => self.button9_pressed,
+            _ => false,
+        }
+    }
+}
+
+// Initialize evdev device for side button detection (Linux only)
+#[cfg(target_os = "linux")]
+fn init_evdev_device() -> Option<Device> {
+    use std::fs;
+    use std::path::Path;
+    
+    let input_dir = Path::new("/dev/input");
+    if let Ok(entries) = fs::read_dir(input_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("event") {
+                    match Device::open(&path) {
+                        Ok(device) => {
+                            let name_lower = device.name().unwrap_or_default().to_lowercase();
+                            if name_lower.contains("mouse") || name_lower.contains("pointer") {
+                                eprintln!("✅ Found mouse device: {} - will monitor for side buttons", device.name().unwrap_or_default());
+                                return Some(device);
+                            }
+                        }
+                        Err(_) => {
+                            // Permission denied is expected if not in input group - continue searching
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("⚠️  Warning: Could not find evdev mouse device. Side buttons may not work.");
+    eprintln!("   Try: sudo usermod -aG input $USER  (then log out/in)");
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn init_evdev_device() -> Option<()> {
+    None
+}
+
 // Background thread to monitor Warframe window state
 fn background_app_check(state: Arc<State>) {
     let mut last_state = false;
@@ -485,9 +573,22 @@ fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
         let mut last_macro_state = false;
         let mut last_rapid_click_state = false;
         
+        // Initialize evdev device for side button detection (Linux only)
+        #[cfg(target_os = "linux")]
+        let mut evdev_device = init_evdev_device();
+        
+        #[cfg(target_os = "linux")]
+        let mut side_button_state = SideButtonState::new();
+        
         loop {
             let keys = device_state.get_keys();
             let mouse = device_state.get_mouse();
+            
+            // Update side button state from evdev (Linux only)
+            #[cfg(target_os = "linux")]
+            {
+                side_button_state.update_from_evdev(&mut evdev_device);
+            }
             
             // Get current config
             let config_snapshot = config_input.lock().unwrap().clone();
@@ -519,13 +620,33 @@ fn run_macro(config: Arc<Mutex<SharedConfig>>, state: Arc<State>) {
                 
                 // Check for macro button
                 let macro_button_idx = keybinds.macro_button;
-                let macro_pressed = macro_button_idx < mouse.button_pressed.len() 
-                    && mouse.button_pressed[macro_button_idx]
-                    || (keybinds.macro_alt.is_some() 
-                        && {
-                            let alt_idx = keybinds.macro_alt.unwrap();
-                            alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx]
-                        });
+                
+                // Try device_query first, then fall back to evdev for side buttons on Linux
+                let macro_pressed_device_query = macro_button_idx < mouse.button_pressed.len() 
+                    && mouse.button_pressed[macro_button_idx];
+                
+                #[cfg(target_os = "linux")]
+                let macro_pressed = macro_pressed_device_query || side_button_state.is_pressed(macro_button_idx);
+                
+                #[cfg(not(target_os = "linux"))]
+                let macro_pressed = macro_pressed_device_query;
+                
+                // Check alt macro button if enabled
+                let alt_pressed = if let Some(alt_idx) = keybinds.macro_alt {
+                    let alt_pressed_device_query = alt_idx < mouse.button_pressed.len() && mouse.button_pressed[alt_idx];
+                    
+                    #[cfg(target_os = "linux")]
+                    let alt_pressed = alt_pressed_device_query || side_button_state.is_pressed(alt_idx);
+                    
+                    #[cfg(not(target_os = "linux"))]
+                    let alt_pressed = alt_pressed_device_query;
+                    
+                    alt_pressed
+                } else {
+                    false
+                };
+                
+                let macro_pressed = macro_pressed || alt_pressed;
                 
                 if macro_pressed && !last_macro_state 
                     && !state_input.running.load(Ordering::Relaxed)
